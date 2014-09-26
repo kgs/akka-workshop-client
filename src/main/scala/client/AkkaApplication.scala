@@ -1,48 +1,50 @@
 package client
 
-import akka.actor.{Props, ActorRef, Actor, ActorSystem}
+import akka.actor._
+import akka.routing.RoundRobinRouter
+import com.virtuslab.akkaworkshop.Decrypter
 import com.virtuslab.akkaworkshop.PasswordsDistributor._
-import com.virtuslab.akkaworkshop.{PasswordsDistributor, Decrypter}
-import scala.util.Try
+
+import scala.util.{Failure, Success, Try}
 
 
-class WorkflowActor extends Actor {
+class WorkerActor extends Actor {
 
   var currentToken: Token = _
-  var remoteActor: ActorRef = _
-
-  val decrypter = new Decrypter
-
+  var remoteActor: ActorSelection = _
 
   private def requestNewPassword(): Unit = remoteActor ! SendMeEncryptedPassword(currentToken)
 
   private def decryptPassword(password: String): Try[String] = Try {
-    val preapared = decrypter.prepare(password)
-    val decoded = decrypter.decode(preapared)
+    val decrypter = new Decrypter
+    val prepared = decrypter.prepare(password)
+    val decoded = decrypter.decode(prepared)
     val decrypted = decrypter.decrypt(decoded)
     decrypted
   }
 
-
   override def receive: Receive = {
 
-    //start with actor from server
-    case actorRef: ActorRef =>
-      remoteActor = actorRef
-
-      //register a actor
-      actorRef ! Register(s"From machine: ${System.getProperty("user.name")}")
-
     //once actor is register ask for first password
-    case Registered(token) =>
+    case (actorSelection: ActorSelection, token: String) =>
+      println(s"Starting worker: $self")
+      remoteActor = actorSelection
       currentToken = token
       requestNewPassword()
 
     //once you got a password to decrypt - do it!
     case EncryptedPassword(encryptedPassword) =>
-      decryptPassword(encryptedPassword).foreach(decryptedPassword =>
-        remoteActor ! ValidateDecodedPassword(currentToken, encryptedPassword, decryptedPassword))
-
+      println(s"Encrypted password from server: $encryptedPassword")
+      decryptPassword(encryptedPassword) match {
+        case Success(decryptedPassword) => {
+          println(s"Success: $decryptedPassword)")
+          remoteActor ! ValidateDecodedPassword(currentToken, encryptedPassword, decryptedPassword)
+        }
+        case Failure(t) => {
+          println(s"Failure: $t")
+          self ! EncryptedPassword(encryptedPassword)
+        }
+      }
 
     //correct password
     case PasswordCorrect(password) =>
@@ -52,8 +54,28 @@ class WorkflowActor extends Actor {
     //incorrect password
     case PasswordIncorrect(password) =>
       println(s"Incorrect password: $password")
-
       requestNewPassword()
+  }
+}
+
+class MasterActor extends Actor {
+
+  var currentToken: Token = _
+  var remoteActor: ActorSelection = _
+  var workerActor: ActorRef = _
+
+  override def receive: Receive = {
+
+    case (actorSelection: ActorSelection, worker: ActorRef) =>
+      remoteActor = actorSelection
+      workerActor = worker
+
+      //register a actor
+      remoteActor ! Register(s"@kgs42")
+
+    case Registered(token) =>
+      println("Registered with token: $token")
+      for (n <- 1 until 4) workerActor ! (remoteActor, token)
   }
 }
 
@@ -66,13 +88,13 @@ object AkkaApplication extends App {
   //actor system
   val system = ActorSystem("HelloSystem")
 
-  //distributed actor - refactor to remote one
-  val distributorActor = system.actorOf(Props[PasswordsDistributor], "sample-distributor")
+  //distributed actor
+  val remoteActor = system.actorSelection("akka.tcp://application@192.168.88.1:9552/user/PasswordsDistributor")
 
-  //to be replaced with solid code
-  val listenerActor = system.actorOf(Props[WorkflowActor])
+  val masterActor = system.actorOf(Props[MasterActor])
+  val workerActor = system.actorOf(Props[WorkerActor].withRouter(RoundRobinRouter(nrOfInstances = 4)))
 
-  listenerActor ! distributorActor
+  masterActor ! (remoteActor, workerActor)
 
   system.awaitTermination()
 }

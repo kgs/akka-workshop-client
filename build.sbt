@@ -8,6 +8,7 @@ libraryDependencies ++= Seq(
   "commons-codec" % "commons-codec" % "1.9",
   "com.typesafe.akka" %% "akka-actor" % "2.3.4",
   "com.typesafe.akka" %% "akka-testkit" % "2.3.4",
+  "com.typesafe.akka" %% "akka-remote" % "2.3.4",
   "org.scalatest" %% "scalatest" % "2.1.6" % "test",
   "junit" % "junit" % "4.11" % "test",
   "com.novocode" % "junit-interface" % "0.10" % "test"
