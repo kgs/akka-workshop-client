@@ -1,16 +1,18 @@
 package client
 
 
-import akka.actor.{ActorRef, Actor, Props, ActorSystem}
+import akka.actor._
+import com.typesafe.config.ConfigFactory
 import com.virtuslab.akkaworkshop.{Decrypter, PasswordsDistributor}
 import com.virtuslab.akkaworkshop.PasswordsDistributor._
 import scala.util.Try
 
+object Start
 
 class WorkflowActor extends Actor {
 
   var currentToken: Token = _
-  var remoteActor: ActorRef = _
+  var remoteActor = context.actorSelection("akka.tcp://application@127.0.0.1:9552/user/PasswordsDistributor")
 
   val worker = context.actorOf(Props[WorkerSupervisor])
 
@@ -19,11 +21,10 @@ class WorkflowActor extends Actor {
   override def receive: Receive = {
 
     //start with actor from server
-    case actorRef: ActorRef =>
-      remoteActor = actorRef
-
+    case Start=>
+       remoteActor ! "ala ma kota"
       //register a actor
-      actorRef ! Register(s"From machine: ${System.getProperty("user.name")}")
+      remoteActor ! Register(System.getProperty("user.name"))
 
     //once actor is register ask for first password
     case Registered(token) =>
@@ -52,6 +53,9 @@ class WorkflowActor extends Actor {
       println(s"Incorrect password: $password")
 
       requestNewPassword()
+
+    case any =>
+      println("Not knowing: " + any)
   }
 }
 
@@ -65,12 +69,13 @@ object AkkaApplication extends App {
   val system = ActorSystem("HelloSystem")
 
   //distributed actor - refactor to remote one
-  val distributorActor = system.actorOf(Props[PasswordsDistributor], "sample-distributor")
+
+  //system.actorOf(Props[PasswordsDistributor], "sample-distributor")
 
   //to be replaced with solid code
   val listenerActor = system.actorOf(Props[WorkflowActor], "workflow")
 
-  listenerActor ! distributorActor
+  listenerActor ! Start
 
   system.awaitTermination()
 }
