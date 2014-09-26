@@ -60,19 +60,27 @@ class WorkerSupervisor extends Actor {
  */
 class WorkerActor extends Actor {
 
-  def log(msg: String) = s"[${self.name}] [$currentPassword] $msg"
+  def log(msg: String) = println(s"[${self}] [$currentPassword] $msg")
 
   var decrypter = new Decrypter
   var currentPassword: String = _
   var currentClient: ActorRef = _
 
 
+  def cleanOldState: Receive = {
+    case freshPassword: String =>
+      self ! freshPassword
+    case _ =>
+      self ! currentPassword
+      context.become(acceptPassword)
+
+  }
+
   def supervising: Receive = {
     case ResetWorker =>
       log(s"Reseting")
       decrypter = new Decrypter
-      self ! currentPassword
-      context.become(acceptPassword)
+      context.become(cleanOldState)
   }
 
   def stashMessage: Receive = {
@@ -84,9 +92,11 @@ class WorkerActor extends Actor {
 
   def acceptPassword: Receive = phase {
     case password: String =>
-      currentPassword = password
+
       if (sender() != self)
         currentClient = sender()
+
+      currentPassword = password
 
       log("prepare")
 
@@ -106,13 +116,20 @@ class WorkerActor extends Actor {
 
   def decryptPassword = phase {
     case decoded: PasswordDecoded =>
-      println(s"decrpty for $currentPassword")
+      log("Decrypt")
 
-      currentClient ! DecryptedPassword(currentPassword, decrypter.decrypt(decoded))
+      val decrypted = decrypter.decrypt(decoded)
 
-      context.become(acceptPassword)
+      self ! DecryptedPassword(currentPassword, decrypted)
+
+      context.become(sendPassword)
   }
 
+  def sendPassword = phase {
+    case decodedPassword: DecryptedPassword =>
+      currentClient ! decodedPassword
+      context.become(acceptPassword)
+  }
 
   override def receive: Receive = acceptPassword
 }
