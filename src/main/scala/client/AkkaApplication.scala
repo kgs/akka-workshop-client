@@ -2,7 +2,7 @@ package client
 
 
 import akka.actor.{ActorRef, Actor, Props, ActorSystem}
-import com.virtuslab.akkaworkshop.{ Decrypter, PasswordsDistributor}
+import com.virtuslab.akkaworkshop.{Decrypter, PasswordsDistributor}
 import com.virtuslab.akkaworkshop.PasswordsDistributor._
 import scala.util.Try
 
@@ -38,6 +38,9 @@ class WorkflowActor extends Actor {
 
     case DecryptedPassword(encryptedPassword, decryptedPassword) =>
       remoteActor ! ValidateDecodedPassword(currentToken, encryptedPassword, decryptedPassword)
+
+    case PasswordRequest =>
+      requestNewPassword()
 
     //correct password
     case PasswordCorrect(password) =>
