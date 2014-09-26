@@ -12,19 +12,9 @@ class WorkflowActor extends Actor {
   var currentToken: Token = _
   var remoteActor: ActorRef = _
 
-  val decrypter = new Decrypter
-
-  val worker = AkkaApplication.system.actorOf(Props[WorkerActor])
+  val worker = context.actorOf(Props[WorkerSupervisor])
 
   private def requestNewPassword(): Unit = remoteActor ! SendMeEncryptedPassword(currentToken)
-
-  private def decryptPassword(password: String): Try[String] = Try {
-    val preapared = decrypter.prepare(password)
-    val decoded = decrypter.decode(preapared)
-    val decrypted = decrypter.decrypt(decoded)
-    decrypted
-  }
-
 
   override def receive: Receive = {
 
@@ -75,7 +65,7 @@ object AkkaApplication extends App {
   val distributorActor = system.actorOf(Props[PasswordsDistributor], "sample-distributor")
 
   //to be replaced with solid code
-  val listenerActor = system.actorOf(Props[WorkflowActor])
+  val listenerActor = system.actorOf(Props[WorkflowActor], "workflow")
 
   listenerActor ! distributorActor
 

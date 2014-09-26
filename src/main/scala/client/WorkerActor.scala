@@ -1,33 +1,47 @@
 package client
 
-import akka.actor.{ActorRef, Actor}
-import akka.actor.Actor.Receive
+import akka.actor._
+import akka.actor.SupervisorStrategy._
 import com.virtuslab.akkaworkshop.{PasswordDecoded, PasswordPrepared, Decrypter}
-import scala.util.Try
-import java.sql.PreparedStatement
 
 
 case class DecryptedPassword(encryptedPassword: String, decryptedPassword: String)
+
+object ResetWorker
+
+class WorkerSupervisor extends Actor {
+
+
+  val actor = context.actorOf(Props[WorkerActor], "worker")
+
+  override val supervisorStrategy =
+    OneForOneStrategy(maxNrOfRetries = 0) {
+      case exception: IllegalStateException =>
+        sender() ! ResetWorker
+        Resume
+    }
+
+  override def receive(): Receive = {
+    case msg => actor forward msg
+  }
+}
 
 /**
  * Author: Krzysztof Romanowski
  */
 class WorkerActor extends Actor {
 
-  val decrypter = new Decrypter
+  var decrypter = new Decrypter
   var currentPassword: String = _
   var currentClient: ActorRef = _
 
-  def errorHandling[T](op: => Unit): Unit =
-    try {
-      op
-    } catch {
-      case exception: IllegalStateException =>
-        println(exception.getMessage)
-        self ! currentPassword
-    }
 
   override def receive: Receive = {
+
+    case ResetWorker =>
+      decrypter = new Decrypter
+      self ! currentPassword
+
     case password: String =>
       currentPassword = password
       if (sender() != self)
@@ -35,18 +49,16 @@ class WorkerActor extends Actor {
 
       println(s"prepare for $currentPassword")
 
-      errorHandling(self ! decrypter.prepare(password))
+      self ! decrypter.prepare(password)
 
     case prepared: PasswordPrepared =>
       println(s"decode for $currentPassword")
 
-      errorHandling(self ! decrypter.decode(prepared))
+      self ! decrypter.decode(prepared)
 
     case decoded: PasswordDecoded =>
       println(s"decrpty for $currentPassword")
 
-      errorHandling {
-        currentClient ! DecryptedPassword(currentPassword, decrypter.decrypt(decoded))
-      }
+      currentClient ! DecryptedPassword(currentPassword, decrypter.decrypt(decoded))
   }
 }
